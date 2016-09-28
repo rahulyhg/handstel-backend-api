@@ -1,0 +1,61 @@
+<?php
+
+namespace Service;
+use Utils\DBConnection;
+class SchoolService
+{
+
+public function getSchools()
+{
+    $conn = DBConnection::getInstance()->getConnection();
+    $sql = "select school_id,school_name from school";
+    try 
+  	 {
+        $stmt = $conn->prepare($sql);
+        $stmt->execute();
+        $schools = $stmt->fetchAll(\PDO::FETCH_OBJ);
+        $conn = null;
+        return $schools;
+        
+      } 
+    catch(PDOException $e)
+     {
+         throw new Exception($e);
+     }
+
+}
+
+
+
+public function getSchoolID($school_name)
+{
+
+    $conn = DBConnection::getInstance()->getConnection();
+    $sql = "select school_id from school where school_name=:school_name";
+    try 
+     {
+        $stmt = $conn->prepare($sql);
+        $stmt->bindParam("school_name",$school_name);
+        $stmt->execute();
+        $schools = $stmt->fetchAll();
+        $conn = null;
+        
+        return $schools[0]['school_id'];
+        
+      } 
+    catch(PDOException $e)
+     {
+        
+         throw new Exception($e);
+     }
+}
+
+
+
+
+}
+
+
+
+
+?>

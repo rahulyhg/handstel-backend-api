@@ -1,0 +1,618 @@
+<?php
+
+use Service\UserService;
+use Service\GroupService;
+use Service\SchoolService;
+use Service\ContactService;
+use Service\NotificationService;
+use Utils\StandardResponse;
+use Utils\ImageHelper;
+use Service\AuthToken;
+use Utils\AuthenticationToken;
+use API\Exception\ValidationException;
+
+
+class HandstelAPI
+{
+
+/*
+*input : Name, email,schoolName, childName, gcmKey,apnsKey,fbID,googleId,sessionToken,lastLogin
+*output : Name, user_id, session token,schoolId
+*warning : Not transactional
+*todo:filters for the input fields required at the application level,validation of mandatory fields
+//tested after review 1
+*/
+
+function signup()
+{
+
+	global $app;
+
+	$req = $app->request();
+	$authToken = new AuthToken;
+	$user_service = new UserService;
+	
+	$user_name = trim($req->post('user_name'));
+	$phone_number = trim($req->post('phone_number'));
+	$school_id = trim($req->post('school_id'));
+	$child_name = trim($req->post('child_name'));
+	$gcm_key = trim($req->post('gcm_key'));
+	$apns_key = trim($req->post('apns_key'));
+	$user_email = trim($req->post('user_email'));
+	$fb_id = trim($req->post('fb_id'));
+	$google_id = trim($req->post('google_id'));
+
+
+
+	if((empty($user_name) || empty($phone_number) || empty($school_id) || empty($child_name) || (empty($gcm_key) && empty($apns_key)) || empty($user_email)))
+		throw new ValidationException(FIELDS_EMPTY_MESSAGE,FIELDS_EMPTY,null);
+	
+	if(empty($google_id) && empty($fb_id))
+		throw new ValidationException(FACEBOOK_ID_GOOGLE_ID_NOT_PROVIDED_MESSAGE,FACEBOOK_ID_GOOGLE_ID_NOT_PROVIDED,null);
+
+	$user_email = filter_var($user_email, FILTER_SANITIZE_EMAIL);
+	$user = $user_service->getUserbyEmail($user_email);
+
+	if(!empty($user_email) && !empty($user))
+	{	
+			throw new ValidationException(EMAIL_ALREADY_EXISTS_MESSAGE,EMAIL_ALREADY_EXISTS,null);
+	}
+
+	$token = $authToken->getAuthToken($user_email);
+	$current = time();
+	$expiry_time = strtotime("+" .EXPIRY_TIME."day", $current);
+	$expiry_time = date("Y-m-d  h:i:s",$expiry_time);
+	echo $expiry_time;
+	try
+	{
+		$user_id = $user_service->addUser($user_name,$phone_number,$user_email,$gcm_key,$apns_key,$fb_id,$google_id,$token,$expiry_time);
+		$child_id = $user_service->addChild($child_name,$school_id,$user_id);
+		$payload = json_encode(array('user_name'=>$user_name,'user_id'=>$user_id,'auth_token'=>$token,'school_id'=>$school_id,'child_id'=>$child_id));
+		echo json_encode(new StandardResponse(SUCCESS,200,$payload),JSON_PRETTY_PRINT);
+		return json_encode(new StandardResponse(SUCCESS,200,$payload));
+	}
+	catch(Exception $e)
+	{
+		throw new  Exception($e);
+	}
+	
+}
+		
+
+/*
+*input : fb_id,google_id,email_id
+*output : upon success return the
+
+*/
+function login()
+{
+
+	global $app;
+	
+	$user_service = new UserService;
+	$auth_token = new AuthToken;
+    
+	$email =  trim($app->request()->post('user_email'));
+	$facebook_id =  trim($app->request()->post('fb_id'));
+	$google_id =  trim($app->request()->post('google_id'));
+
+	if((empty($email) || (empty($facebook_id) && empty($google_id)))) 
+		throw new ValidationException(FIELDS_EMPTY_MESSAGE,FIELDS_EMPTY,null);
+
+	$user_email = filter_var($email, FILTER_SANITIZE_EMAIL);
+	$user = $user_service->getUserbyEmail($email);
+	
+	//check for only the empty field,todo:return a child_id
+	if(!empty($user) && ((!empty($facebook_id) && ($user[0]["fb_id"] == $facebook_id)) || (!empty($google_id) && ($user[0]["google_id"] == $google_id))))
+	{
+
+	$user_id  = $user[0]['user_id'];
+	$token = $user[0]['auth_token'];
+	$expiry_time = $user[0]['expiry_time'];
+	$school_id = $user_service->getUserSchool($user[0]['user_id']); 	
+	$child_id = $user_service->getUserChild($user_id);
+
+	if($auth_token->hasTokenExpired($expiry_time))
+		$token = $auth_token->refreshToken($user);
+
+	$payload = array('token'=>$token,'name'=>$user[0]['user_name'],'user_id'=>$user[0]['user_id'],'school_id'=>$school_id,'child_id'=>$child_id);
+	echo json_encode(new StandardResponse(SUCCESS,200,$payload),JSON_PRETTY_PRINT);
+	return json_encode(new StandardResponse(SUCCESS,200,$payload));
+	}
+	
+
+	throw new ValidationException(INVALID_CREDENTIALS_MESSAGE,INVALID_CREDENTIALS,null);
+
+}
+
+//tested
+public function createGroup($group_name)
+{
+	global $app;
+	global $config;
+	$req = $app->request();
+	$user_service = new UserService;
+	$group_service = new GroupService;
+
+	
+	$user_id = trim($req->post('user_id'));
+	$group_image = trim($req->post('group_image'));
+	$group_name = trim($group_name);
+
+	if(empty($user_id) || empty($group_name))
+		throw new ValidationException(FIELDS_EMPTY_MESSAGE,FIELDS_EMPTY,null);
+
+	$id = filter_var(filter_var($user_id, FILTER_SANITIZE_NUMBER_INT),FILTER_VALIDATE_INT);
+	if ($id == false) 
+	{
+		throw new ValidationException(INVALID_USER_ID_MESSAGE,INVALID_USER_ID,null);
+	}
+
+	$user = AuthenticationToken::getToken();
+	if(empty($user))
+		throw new ValidationException(USER_DOES_NOT_EXIST_MESSAGE,USER_DOES_NOT_EXIST,null);
+	
+	$school_id = $user_service->getUserSchool($user_id);
+	$group = $group_service->getGroupByGroupName($group_name,$school_id);
+
+	if(!empty($group))
+		throw new ValidationException(GROUP_ALREADY_EXISTS_MESSAGE,GROUP_ALREADY_EXISTS,null);
+
+	$stored_path  = ImageHelper::base64_decode($group_image, dirname(__FILE__) . "/images/groups/".$group_name.".jpg");
+	$file_size = ImageHelper::file_size($stored_path);
+	//has to come before
+	if($file_size <  MAX_FILE_SIZE)
+	{
+		$stored_path = $config['app']['base_url'] . "/images/groups/".$group_name.".jpg";
+	}
+	else
+	{
+		unlink($stored_path);
+		throw new ValidationException(FILE_SIZE_TOO_BIG_MESSAGE,FILE_SIZE_TOO_BIG,null);
+	}
+
+	$group_id = $group_service->createGroup($group_name,$stored_path,$school_id);
+	$child_id = $user_service->getUserChild($user_id);
+	try
+	{
+	$group_service -> joinGroup($user_id,$group_id,$child_id);
+	}
+	catch(Exception $e)
+	{
+		//just ignore the exception
+		
+	}
+
+	$payload = array('group_id' => $group_id);//depends on what is required
+
+	echo json_encode(new StandardResponse(SUCCESS,200,$payload),JSON_PRETTY_PRINT);
+	return json_encode(new StandardResponse(SUCCESS,200,$payload));
+
+}
+
+
+//tested after review 1
+public function getUserProfile($user_id)
+{
+	$user_service = new UserService;
+	$group_service = new GroupService;
+
+	$id = filter_var(filter_var($user_id, FILTER_SANITIZE_NUMBER_INT),FILTER_VALIDATE_INT);
+	if ($id == false) 
+	{
+		throw new ValidationException(INVALID_USER_ID_MESSAGE,INVALID_USER_ID,null);
+	}
+
+	$user = AuthenticationToken::getToken();
+	if(empty($user))
+		throw new ValidationException(USER_DOES_NOT_EXIST_MESSAGE,USER_DOES_NOT_EXIST,null);
+
+	$groups = $group_service->getUserGroups($user_id);
+	$profile_pic = $user[0]['profile_pic'];
+	$payload = array('user_name' => $user[0]['user_name'],'profile_pic' => $profile_pic,'groups' =>$groups);
+	echo json_encode(new StandardResponse(SUCCESS,200,$payload),JSON_PRETTY_PRINT);
+	return json_encode(new StandardResponse(SUCCESS,200,$payload));
+	
+	
+
+}
+
+
+//tested
+//tested after code review 1
+public function editProfile($user_id)
+{
+	global $app;
+	global $config;
+	$req = $app->request();
+	$user_service = new UserService;
+
+	$user_name = trim($req->post('user_name'));
+	$profile_pic  = trim($req->post('profile_pic'));
+	$user_id  = trim($user_id);
+
+	if(empty($user_id))
+		throw new ValidationException(FIELDS_EMPTY_MESSAGE,FIELDS_EMPTY,null);
+		
+	$id = filter_var(filter_var($user_id, FILTER_SANITIZE_NUMBER_INT),FILTER_VALIDATE_INT);
+	if ($id == false) 
+		throw new ValidationException(INVALID_USER_ID_MESSAGE,INVALID_USER_ID,null);
+	
+
+	$user = AuthenticationToken::getToken();
+	if(empty($user))
+		throw new ValidationException(USER_DOES_NOT_EXIST_MESSAGE,USER_DOES_NOT_EXIST,null);
+
+	$stored_name = $user[0]['user_name'];
+	$stored_path = $user[0]['profile_pic'];
+
+	if(empty($profile_pic) && !empty($stored_path))
+	{
+		$stored_path = trim($stored_path);
+		$base = substr($stored_path, 0, strpos($stored_path, '/'));
+		$root = dirname(__FILE__);
+		$new_url = str_replace($base,$root,$stored_path);
+		unlink($new_url);
+		$user_service->updateProfile($user_id,$user_name,null);
+		$stored_path = null;
+		
+		
+	}
+	elseif(!empty($profile_pic))
+	{
+		try
+		{	
+			$stored_path = dirname(__FILE__)."/images/users/".$user_id.".jpg";//this is a prefixed path currently put in the current directory
+			$stored_path  = ImageHelper::base64_decode($profile_pic,$stored_path);
+			$file_size = ImageHelper::file_size($stored_path);
+			if($file_size <  MAX_FILE_SIZE)
+			{
+				$stored_path = $config['app']['base_url'] . "/images/users/".$user_id.".jpg";
+				$user_service->updateProfile($user_id,$user_name,$stored_path);
+			}
+				
+			else
+			{
+				unlink($stored_path);
+				throw new ValidationException(FILE_SIZE_TOO_BIG_MESSAGE,FILE_SIZE_TOO_BIG,null);
+			}
+
+		}
+		catch(Exception $e)
+		{
+			throw new Exception($e);
+		}
+	}
+	elseif(empty($stored_path))
+	{
+		$user_service->updateProfile($user_id,$user_name,$stored_path);
+	}
+	
+
+	$payload =  array('user_name' => $user_name,'profile_pic'=>$stored_path);
+	echo json_encode(new StandardResponse(SUCCESS,200,$payload),JSON_PRETTY_PRINT);
+	return json_encode(new StandardResponse(SUCCESS,200,$payload));
+	
+}
+
+
+//tested after review 1
+public function discoverGroups($user_id)
+{
+
+	$group_service = new GroupService;
+	$user_service = new UserService;
+
+	if(empty($user_id))
+		throw new ValidationException(FIELDS_EMPTY_MESSAGE,FIELDS_EMPTY,null);
+
+	$id = filter_var(filter_var($user_id, FILTER_SANITIZE_NUMBER_INT),FILTER_VALIDATE_INT);
+	if ($id == false) 
+		throw new ValidationException(INVALID_USER_ID_MESSAGE,INVALID_USER_ID,null);
+	
+
+	$user = AuthenticationToken::getToken();
+	if(empty($user))
+		throw new ValidationException(USER_DOES_NOT_EXIST_MESSAGE,USER_DOES_NOT_EXIST,null);
+
+	try
+	{
+		$school_id = $user_service->getUserSchool($user_id);
+		$groups = $group_service->discoverGroups($user_id,$school_id);
+		$payload = array('groups' => $groups);
+		echo json_encode(new StandardResponse(SUCCESS,200,$payload),JSON_PRETTY_PRINT);
+		return json_encode(new StandardResponse(SUCCESS,200,$payload));
+	}
+	catch(Exception $e)
+	{
+		throw new Exception($e);
+	}
+	
+}
+
+//tested for correct input,right error messaged not returned
+//tested after code review 1
+public function getMyGroups($user_id)
+{
+
+	$group_service = new GroupService;
+	$user_service = new UserService;
+
+	if(empty($user_id))
+		throw new ValidationException(FIELDS_EMPTY_MESSAGE,FIELDS_EMPTY,null);
+
+	$id = filter_var(filter_var($user_id, FILTER_SANITIZE_NUMBER_INT),FILTER_VALIDATE_INT);
+	if ($id == false) 
+		throw new ValidationException(INVALID_USER_ID_MESSAGE,INVALID_USER_ID,null);
+	
+
+	$user = AuthenticationToken::getToken();
+	if(empty($user))
+		throw new ValidationException(USER_DOES_NOT_EXIST_MESSAGE,USER_DOES_NOT_EXIST,null);
+
+	$groups = $group_service->getUserGroups($user_id);
+	$payload = array('groups' => $groups);
+	echo json_encode(new StandardResponse(SUCCESS,200,$payload));
+	return json_encode(new StandardResponse(SUCCESS,200,$payload));
+
+}
+
+//tested after review 1
+//page_limit not required
+public function getSchoolList()
+{
+  $school_service = new SchoolService;
+  $schools = $school_service->getSchools();
+  $payload = array('schools' => $schools);
+  echo json_encode(new StandardResponse(SUCCESS,200,$payload),JSON_PRETTY_PRINT);
+  return json_encode(new StandardResponse(SUCCESS,200,$payload));
+
+}
+
+//dint change,older version looked fine
+//tested after review 1
+public function getNotifications($user_id)
+{
+
+	$group_service = new GroupService;
+	$notification_service = new NotificationService;
+
+	if(empty($user_id))
+		throw new ValidationException(FIELDS_EMPTY_MESSAGE,FIELDS_EMPTY,null);
+
+	$id = filter_var(filter_var($user_id, FILTER_SANITIZE_NUMBER_INT),FILTER_VALIDATE_INT);
+	if ($id == false) 
+		throw new ValidationException(INVALID_USER_ID_MESSAGE,INVALID_USER_ID,null);
+
+	$groups = $group_service->getUserGroups($user_id);
+	$user_group_notifications = array();
+
+
+	foreach($groups as $group)
+	{
+		$group_id = $group->group_id;
+		$group_name = $group->group_name;
+		$notifications = $notification_service->getNotifications($group_id);
+		$user_group_notifications[$group_name] = $notifications;
+	}
+
+	$payload = array('groups' => $user_group_notifications);
+	echo json_encode(new StandardResponse(SUCCESS,200,$payload),JSON_PRETTY_PRINT);
+	return json_encode(new StandardResponse(SUCCESS,200,$payload));
+}
+
+/*phone_number
+output: phone_number
+//privacy issues and action happems
+//json of contact object 
+ recommendUsers
+ json of contacts mark a flag to indicate whether it is present or not
+ tested after review 1
+*/
+public function getUsers($user_id)
+{
+
+	global $app;
+	$req = $app->request();
+	$user_service = new UserService;
+
+	$contacts = trim($req->get('contacts'));
+	// $contacts = '[{"name":"manish","phone_number":"9886073724"},{"name":"priyanka","phone_number":"9886073724423"},{"name":"sunil","phone_number":"2342342342"},{"name":"subin","phone_number":"39737972332"}]';
+
+	if(empty($user_id) || empty($contacts))
+		throw new ValidationException(FIELDS_EMPTY_MESSAGE,FIELDS_EMPTY,null);
+
+	$id = filter_var(filter_var($user_id, FILTER_SANITIZE_NUMBER_INT),FILTER_VALIDATE_INT);
+	if ($id == false) 
+		throw new ValidationException(INVALID_USER_ID_MESSAGE,INVALID_USER_ID,null);
+
+	$user = AuthenticationToken::getToken();
+	if(empty($user))
+		throw new ValidationException(USER_DOES_NOT_EXIST_MESSAGE,USER_DOES_NOT_EXIST,null);
+
+	try
+	{
+		$contacts = json_decode($contacts);
+		// $contacts = '[{"name":"manish","phone_number":"9886073724"},{"name":"priyanka","phone_number":"9886073724423"},{"name":"sunil","phone_number":"2342342342"},{"name":"subin","phone_number":"39737972332"}]';
+	}
+	catch(Exception $e)
+	{
+		throw new Exception($e);
+	}
+
+	$school_id = $user_service->getUserSchool($user_id);
+	$users = $user_service->recommendUsers($user_id,$school_id);
+	$handstel_numbers = array();
+	$contact_intersection = array();
+
+	foreach($users as $user)
+	{
+		array_push($handstel_numbers,$user->phone_number);
+	}
+	
+	foreach($contacts as $contact)
+	{
+		$data = new stdClass();
+		$data->name=$contact->name;
+		$data->phone_number=$contact->phone_number;
+		if(in_array($data->phone_number,$handstel_numbers))
+			$data->is_present = true;
+		else
+			$data->is_present = false;
+
+		array_push($contact_intersection,$data);
+	}
+
+	$payload = array('contacts' => $contact_intersection);
+	echo json_encode(new StandardResponse(SUCCESS,200,$payload),JSON_PRETTY_PRINT);
+	return json_encode(new StandardResponse(SUCCESS,200,$payload));
+
+}
+
+
+//tested after review 1
+public function joinGroup($user_id,$group_id)
+{
+    
+    $group_service = new GroupService;
+	$user_service = new UserService;
+
+	if(empty($user_id) && empty($group_id))
+		throw new ValidationException(FIELDS_EMPTY_MESSAGE,FIELDS_EMPTY,null);
+
+	$id = filter_var(filter_var($user_id, FILTER_SANITIZE_NUMBER_INT),FILTER_VALIDATE_INT);
+	if ($id == false) 
+		throw new ValidationException(INVALID_USER_ID_MESSAGE,INVALID_USER_ID,null);
+
+	$user = AuthenticationToken::getToken();
+	if(empty($user))
+		throw new ValidationException(USER_DOES_NOT_EXIST_MESSAGE,USER_DOES_NOT_EXIST,null);
+		
+	$child_id = $user_service->getUserChild($user_id);
+
+	try	
+	{
+		$group_service->joinGroup($user_id,$group_id,$child_id);
+	}
+	catch(Exception $e)
+	{
+		throw new Exception($e);
+	}
+
+	$group_members =  $group_service->getGroupMembers($group_id);
+	$payload =  array('status' =>SUCCESS,'group_members'=>$group_members);
+	echo json_encode(new StandardResponse(SUCCESS,200,$payload),JSON_PRETTY_PRINT);
+	return json_encode(new StandardResponse(SUCCESS,200,$payload));
+	
+	
+}
+
+/*
+ * input group of user_ids 
+ * output group of pics 
+ *
+*/
+public function getChatWindowPics()
+{
+
+	global $app;
+	$req = $app->request();
+	$user_service = new UserService;
+
+	$users = trim($req->post('users'));
+	// $users = '[{"user_id":"1"},{"user_id":"2"},{"user_id":"3"},{"user_id":"4"}]';
+
+	if(empty($users))
+		throw new ValidationException(FIELDS_EMPTY_MESSAGE,FIELDS_EMPTY,null);
+
+	try
+	{
+		$user_ids = json_decode($users);
+	}
+	catch(Exception $e)
+	{
+		throw new Exception($e);
+	}
+
+	$profile_pics = array();
+	foreach($user_ids as $user_id)
+	{
+		$user = $user_service->getUserbyUserID($user_id);
+		if(!empty($user))
+		{
+			$profile_pic = $user[0]['profile_pic'];
+			$data = new stdClass();
+			$data->user_id = $user_id;
+			$data->profile_pic = $profile_pic;
+			array_push($profile_pics,$data);
+		}	
+	}	
+
+	echo json_encode(new StandardResponse(SUCCESS,200,$profile_pics),JSON_PRETTY_PRINT);
+	return json_encode(new StandardResponse(SUCCESS,200,$profile_pics));
+
+}
+
+
+public function leaveGroup($user_id,$group_id)
+{
+	$group_service = new GroupService;
+	$user_service = new UserService;
+	
+
+	if(empty($user_id))
+		throw new ValidationException(FIELDS_EMPTY_MESSAGE,FIELDS_EMPTY,null);
+
+	$id = filter_var(filter_var($user_id, FILTER_SANITIZE_NUMBER_INT),FILTER_VALIDATE_INT);
+	if ($id == false) 
+		throw new ValidationException(INVALID_USER_ID_MESSAGE,INVALID_USER_ID,null);
+
+	$user = AuthenticationToken::getToken();
+	if(empty($user))
+		throw new ValidationException(USER_DOES_NOT_EXIST_MESSAGE,USER_DOES_NOT_EXIST,null);
+
+	$group = $group_service->getGroupByGroupId($group_id);
+	if(empty($group))
+		throw new ValidationException(GROUP_DOES_NOT_EXIST_MESSAGE,GROUP_DOES_NOT_EXIST,null);
+
+	$status = $group_service->unjoinGroup($user_id,$group_id);
+	$payload = array('status'=>1);//one if it reaches here 
+	echo json_encode(new StandardResponse(SUCCESS,200,$payload),JSON_PRETTY_PRINT);
+	return json_encode(new StandardResponse(SUCCESS,200,$payload));
+
+}
+
+public function getContacts($user_id)
+{
+	$contact_service = new ContactService;
+
+	if(empty($user_id))
+		throw new ValidationException(FIELDS_EMPTY_MESSAGE,FIELDS_EMPTY,null);
+
+	$id = filter_var(filter_var($user_id, FILTER_SANITIZE_NUMBER_INT),FILTER_VALIDATE_INT);
+	if ($id == false) 
+		throw new ValidationException(INVALID_USER_ID_MESSAGE,INVALID_USER_ID,null);
+
+	$user = AuthenticationToken::getToken();
+	if(empty($user))
+		throw new ValidationException(USER_DOES_NOT_EXIST_MESSAGE,USER_DOES_NOT_EXIST,null);
+
+	$contacts = $contact_service->getContacts($user_id);
+	$payload = array('contacts' => $contacts);
+
+	echo json_encode(new StandardResponse(SUCCESS,200,$payload),JSON_PRETTY_PRINT);
+	return json_encode(new StandardResponse(SUCCESS,200,$payload));
+
+}
+
+//not sure about what this does
+public function addUserGroup()
+{
+$response = array('error_status'=>46,'error_message'=>"this is invalid credentials,please try again");
+echo json_encode($response);
+}
+
+
+}
+
+?>

@@ -1,0 +1,79 @@
+<?php
+namespace Service;
+use Utils\DBConnection;
+class SchoolService
+{
+
+public function getSchools()
+{
+    $conn = DBConnection::getInstance()->getConnection();
+    $sql = "select school_id,school_name from school";
+    try 
+  	 {
+        $stmt = $conn->prepare($sql);
+        $stmt->execute();
+        $schools = $stmt->fetchAll(\PDO::FETCH_OBJ);
+        $conn = null;
+        return $schools;
+        
+      } 
+    catch(PDOException $e)
+     {
+         throw new Exception($e);
+     }
+
+}
+
+public function getSchoolGroups($school_id)
+{
+    $conn = DBConnection::getInstance()->getConnection();
+    $sql = "select group_id,group_name from `group` where school_id=:school_id where is_default=1";
+    try 
+     {
+        $stmt = $conn->prepare($sql);
+        $stmt->bindParam("school_id",$school_id);
+        $stmt->execute();
+        $schools = $stmt->fetchAll(\PDO::FETCH_OBJ);
+        $conn = null;
+        return $schools;
+    } 
+    catch(PDOException $e)
+     {
+         throw new Exception($e);
+     }
+
+}
+
+public function getSchoolByID($school_id)
+{
+
+    $conn = DBConnection::getInstance()->getConnection();
+    $sql = "select * from school where school_id=:school_id";
+    try 
+     {
+        $stmt = $conn->prepare($sql);
+        $stmt->bindParam("school_id",$school_id);
+        $stmt->execute();
+        $school = $stmt->fetchAll();
+        $conn = null;
+        if(!empty($school))
+            return $school[0];
+     } 
+    catch(PDOException $e)
+     {
+        
+         throw new Exception($e);
+     }
+
+     
+}
+
+
+
+
+}
+
+
+
+
+?>

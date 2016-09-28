@@ -1,0 +1,31 @@
+<?php
+namespace API\Middleware;
+
+class JSON extends \Slim\Middleware
+{
+    public function __construct()
+    {
+        
+    }
+    
+    public function call()
+    {
+        
+            $this->app->response->headers->set(
+                'Access-Control-Allow-Orgin',
+                '*'
+            );
+            $this->app->response->headers->set(
+                'Access-Control-Allow-Methods',
+                '*'
+            );
+
+            $this->app->response->headers->set(
+                'Content-Type',
+                'application/json'
+            );
+            
+            
+        $this->next->call();
+    }
+}

@@ -1,0 +1,38 @@
+<?php
+const SUCCESS = 1;
+const FAILURE = 0;
+const EXPIRY_TIME = 10;
+const MAX_FILE_SIZE = 2000000;
+const DELIMITER = ":";
+const SAMPLE_ERROR = 900;
+const SAMPLE_ERROR_MESSAGE = "This is just a sample error message";
+const EMAIL_ALREADY_EXISTS = 1000;
+const EMAIL_ALREADY_EXISTS_MESSAGE = "Email already exists";
+const INVALID_CREDENTIALS = 1001;
+const INVALID_CREDENTIALS_MESSAGE = "The credentials provided are invalid";
+const USER_ALEADY_EXISTS = 1002;
+const USER_ALEADY_EXISTS_MESSAGE = "The user already exists";
+const FIELDS_EMPTY  = 1003;
+const FIELDS_EMPTY_MESSAGE  = "Some fields are empty";
+const INVALID_DETAILS = 1004;
+const INVALID_DETAILS_MESSAGE = "The details provided are invalid";
+const ENTRY_FORBIDDEN = 1005;
+const ENTRY_FORBIDDEN_MESSAGE = "Not an authenticated user";
+const USER_DOES_NOT_EXIST  = 1006; 
+const USER_DOES_NOT_EXIST_MESSAGE  = "The user does not exist"; 
+const GROUP_ALREADY_EXISTS  = 1010; 
+const GROUP_ALREADY_EXISTS_MESSAGE  = "The group by the following name already exists"; 
+const BAD_INPUT = 1012;
+const BAD_INPUT_MESSAGE = "Input not in the correct format";
+const CONTACTS_IN_NOT_VALID_FORMAT_MESSAGE = "Contacts not in valid foramt";
+const CONTACTS_IN_NOT_VALID_FORMAT = 1014;
+const FACEBOOK_ID_GOOGLE_ID_NOT_PROVIDED = 1016;
+const FACEBOOK_ID_GOOGLE_ID_NOT_PROVIDED_MESSAGE = "Either of facebook or google account are missing";
+const FILE_SIZE_TOO_BIG = 1020;
+const FILE_SIZE_TOO_BIG_MESSAGE = "The size of the uploaded file is exceeds the standard limit";
+const GROUP_DOES_NOT_EXIST_MESSAGE = 1022;
+const GROUP_DOES_NOT_EXIST = "The group with the given id does not exist";
+const INVALID_USER_ID_MESSAGE =	 "This is an invalid user id";
+const INVALID_USER_ID =	1024;
+?>
+

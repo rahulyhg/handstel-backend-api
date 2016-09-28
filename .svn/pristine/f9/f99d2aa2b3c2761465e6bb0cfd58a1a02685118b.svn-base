@@ -1,0 +1,223 @@
+<?php
+namespace Service;
+use Utils\DBConnection;
+
+class GroupService
+{
+
+public function __construct()
+{
+
+}
+
+//tested
+public function getUserGroups($user_id)
+{
+
+ $conn = DBConnection::getInstance()->getConnection();
+ 
+ $sql = "select group_id,group_name,channel_name,group_image from `group` where group_id in (select group_id from group_users where user_id=:user_id)";
+  try 
+   {
+        $stmt = $conn->prepare($sql);
+        $stmt->bindParam("user_id", $user_id);
+        $stmt->execute();
+        $groups = $stmt->fetchAll(\PDO::FETCH_OBJ);
+        $conn = null;
+        return $groups;
+    } 
+    catch(PDOException $e)
+     {
+      throw new Exception($e);
+     }
+
+
+}
+
+//tested
+public function discoverGroups($user_id,$school_id)
+{
+
+ $conn = DBConnection::getInstance()->getConnection();
+ $sql = "select group_id,group_name,channel_name,group_image from `group` where group_id in (select group_id from `group` where school_id=:school_id and is_default=0 and group_id not in (select group_id from `group_users` where user_id=:user_id));";
+ try 
+   {
+        $stmt = $conn->prepare($sql);
+        $stmt->bindParam("user_id", $user_id);
+        $stmt->bindParam("school_id", $school_id);
+        $stmt->execute();
+        $groups = $stmt->fetchAll(\PDO::FETCH_OBJ);
+        $conn = null;
+        return $groups;
+    } 
+    catch(PDOException $e)
+     {
+      throw new Exception($e);
+     }
+
+}
+
+//tested
+public function createGroup($group_name,$channel_name,$group_image,$school_id)
+{
+
+ $conn = DBConnection::getInstance()->getConnection();
+ $sql = "insert into `group`(school_id,group_name,channel_name,group_image) values(:school_id,:group_name,:channel_name,:group_image)";
+
+try {
+  $stmt = $conn->prepare($sql);
+  $stmt->bindParam("group_name",$group_name);
+  $stmt->bindParam("channel_name",$channel_name);
+  $stmt->bindParam("school_id",$school_id);
+  $stmt->bindParam("group_image",$group_image);
+  $stmt->execute();
+  return $conn->lastInsertId();
+} 
+catch(PDOException $e)
+ {
+    throw new Exception($e);
+
+ }
+}
+
+//tested
+public function joinGroup($user_id,$group_id,$child_id)
+{
+
+ $conn = DBConnection::getInstance()->getConnection();
+ $sql = "insert into group_users(user_id,group_id,child_id) values(:user_id,:group_id,:child_id)";
+ try {
+  $stmt = $conn->prepare($sql);
+  $stmt->bindParam("group_id",$group_id);
+  $stmt->bindParam("user_id",$user_id);
+   $stmt->bindParam("child_id",$child_id);
+  $stmt->execute();
+  return $stmt->rowCount(); // 1
+} 
+catch(PDOException $e)
+ {
+    throw new Exception($e);
+
+ }
+
+}
+
+//tested
+public function getGroupMembers($group_id)
+{
+     $conn = DBConnection::getInstance()->getConnection();
+     $sql = "select user_id,user_name,profile_pic from user where user_id in (select user_id from group_users where group_id=:group_id)";
+     try 
+   {
+        $stmt = $conn->prepare($sql);
+        $stmt->bindParam("group_id", $group_id);
+        $stmt->execute();
+        $members = $stmt->fetchAll(\PDO::FETCH_OBJ);
+        $conn = null;
+        return $members;
+    } 
+    catch(PDOException $e)
+     {
+     throw new Exception($e);
+     }
+
+}
+
+//can be optimized?
+public function getGroupByGroupName($group_name,$school_id)
+{
+
+     $conn = DBConnection::getInstance()->getConnection();
+     $sql = "select * from `group` where group_name=:group_name and school_id=:school_id";
+     try 
+   {
+        $stmt = $conn->prepare($sql);
+        $stmt->bindParam("group_name", $group_name);
+        $stmt->bindParam("school_id", $school_id);
+        $stmt->execute();
+        $group = $stmt->fetchAll(\PDO::FETCH_OBJ);
+        $conn = null;
+        return $group;
+    } 
+    catch(PDOException $e)
+     {
+      throw new Exception($e);
+     }
+
+}
+
+
+public function unjoinGroup($user_id,$group_id)
+{
+
+     $conn = DBConnection::getInstance()->getConnection();
+     $sql = "delete from `group_users` where group_id=:group_id and user_id=:user_id";
+     try 
+    {
+        $stmt = $conn->prepare($sql);
+        $stmt->bindParam("group_id", $group_id);
+        $stmt->bindParam("user_id", $user_id);
+        $stmt->execute();
+        return $stmt->rowCount();
+    } 
+    catch(PDOException $e)
+     {
+      throw new Exception($e);
+     }
+
+}
+
+public function getUserGroup($user_id,$group_id)
+{
+   $conn = DBConnection::getInstance()->getConnection();
+   $sql = "select * from `group_users` where group_id=:group_id and user_id=:user_id";
+   $user_group = null;
+    try 
+   {
+        $stmt = $conn->prepare($sql);
+        $stmt->bindParam("user_id", $user_id);
+        $stmt->bindParam("group_id", $group_id);
+        $stmt->execute();
+        $user_group = $stmt->fetchAll(\PDO::FETCH_OBJ);
+        $conn = null;
+        return $user_group;
+        
+    } 
+    catch(PDOException $e)
+     {
+     $user_group = null;
+     }
+ 
+}
+
+public function getGroupByGroupId($group_id)
+{
+    $conn = DBConnection::getInstance()->getConnection();
+    $sql = "select * from `group` where group_id=:group_id";
+    try 
+   {
+        $stmt = $conn->prepare($sql);
+        $stmt->bindParam("group_id", $group_id);
+        $stmt->execute();
+        $group = $stmt->fetchAll();
+        $conn = null;
+        return $group[0];
+    } 
+    catch(PDOException $e)
+     {
+     return null;
+     }
+
+
+}
+
+
+
+}
+
+
+
+
+
+
+?>
